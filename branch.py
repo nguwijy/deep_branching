@@ -1,11 +1,9 @@
 import time
 import math
 import torch
-import torch.nn.functional as F
 from torch.distributions.exponential import Exponential
 import matplotlib.pyplot as plt
 import numpy as np
-import itertools
 from fdb import fdb_nd
 
 torch.manual_seed(0)  # set seed for reproducibility
@@ -36,22 +34,31 @@ class Net(torch.nn.Module):
         epochs=3000,
         batch_normalization=True,
         antithetic=True,
-        dydx_lam=0,
         overtrain_rate=0.1,
         device="cpu",
         branch_activation="tanh",
         verbose=False,
-        debug_gen=True,
+        fix_all_dim_except_first=True,
         branch_patches=1,
         outlier_percentile=1,
         **kwargs,
     ):
         super(Net, self).__init__()
         self.f_fun = f_fun
+        self.phi_fun = phi_fun
         self.deriv_map = deriv_map
         self.n, self.dim = deriv_map.shape
+        # patching is used for calculating the target expected value of the tree in branch_patches steps
+        #
+        # for example, when t_lo=t_hi=0 and branch_patches=2
+        # the algorithm calculates the function u(T/2, x) with terminal condition phi
+        # then, the algorithm calculates the function u(0, x) with terminal condition of u(T/2, x)
+        #
+        # such approach relies on precise approximation of u(T/2, x)
+        # which is very time-consuming in high dimensional case
+        self.patches = branch_patches
 
-        # store the fdb results for quicker lookup
+        # store the (faa di bruno) fdb results for quicker lookup
         start = time.time()
         self.fdb_lookup = {
             tuple(deriv): fdb_nd(self.n, tuple(deriv)) for deriv in deriv_map
@@ -61,7 +68,6 @@ class Net(torch.nn.Module):
             [len(self.fdb_lookup[tuple(deriv)]) for deriv in deriv_map]
         )
 
-        self.phi_fun = phi_fun
         self.layer = torch.nn.ModuleList(
             [
                 torch.nn.ModuleList(
@@ -88,7 +94,6 @@ class Net(torch.nn.Module):
         )
         self.lr = branch_lr
         self.weight_decay = weight_decay
-        self.dropout = torch.nn.Dropout(p=0.1)
 
         self.loss = torch.nn.MSELoss()
         self.activation = {
@@ -102,6 +107,7 @@ class Net(torch.nn.Module):
         self.nb_path_per_state = branch_nb_path_per_state
         self.x_lo = x_lo
         self.x_hi = x_hi
+        # slight overtrain the domain of x for higher precision near boundary
         self.adjusted_x_boundaries = (
             x_lo - overtrain_rate * (x_hi - x_lo),
             x_hi + overtrain_rate * (x_hi - x_lo),
@@ -114,32 +120,22 @@ class Net(torch.nn.Module):
 
         self.exponential_lambda = branch_exponential_lambda if branch_exponential_lambda is not None else -math.log(.95)/T
         self.epochs = epochs
-        self.dydx_lam = dydx_lam
         self.antithetic = antithetic
         self.device = device
         self.verbose = verbose
-        self.debug_gen = debug_gen
-        self.patches = branch_patches
+        self.fix_all_dim_except_first = fix_all_dim_except_first
         self.t_boundaries = torch.tensor(
             ([t_lo + i * self.delta_t for i in range(branch_patches)] + [T])[::-1],
             device=device,
         )
-        if t_lo == t_hi:
-            self.adjusted_t_boundaries = [
-                (lo, hi) for hi, lo in zip(self.t_boundaries[1:], self.t_boundaries[1:])
-            ]
-        else:
-            # is this even needed???
-            # over-train by 10% of the range so that the performance is good even at the actual boundary
-            self.adjusted_t_boundaries = [
-                (
-                    lo - overtrain_rate * (hi - lo),
-                    min(T, hi + overtrain_rate * (hi - lo)),
-                )
-                for hi, lo in zip(self.t_boundaries[:-1], self.t_boundaries[1:])
-            ]
+        self.adjusted_t_boundaries = [
+            (lo, hi) for hi, lo in zip(self.t_boundaries[1:], self.t_boundaries[1:])
+        ]
 
     def forward(self, x, patch=None):
+        """
+        self(x) evaluates the neural network approximation NN(x)
+        """
         if patch is not None:
             y = x
             for idx, (f, bn) in enumerate(
@@ -149,7 +145,6 @@ class Net(torch.nn.Module):
                 tmp = self.activation(tmp)
                 if self.batch_normalization:
                     tmp = bn(tmp)
-                # tmp = self.dropout(tmp)
                 if idx == 0:
                     y = tmp
                 else:
@@ -168,7 +163,6 @@ class Net(torch.nn.Module):
                     tmp = self.activation(tmp)
                     if self.batch_normalization:
                         tmp = bn(tmp)
-                    # tmp = self.dropout(tmp)
                     if idx == 0:
                         y = tmp
                     else:
@@ -182,6 +176,10 @@ class Net(torch.nn.Module):
         return y
 
     def bisect_left(self, val):
+        """
+        find the index of val based on the discretization of self.t_boundaries
+        it is only used when branch_patches > 1
+        """
         idx = (
             torch.max(self.t_boundaries <= (val + 1e-8).reshape(-1, 1), dim=1)[
                 1
@@ -199,6 +197,9 @@ class Net(torch.nn.Module):
 
     @staticmethod
     def nth_derivatives(order, y, x):
+        """
+        calculate the derivatives of y wrt x with order `order`
+        """
         for cur_dim, cur_order in enumerate(order):
             for _ in range(int(cur_order)):
                 try:
@@ -214,6 +215,10 @@ class Net(torch.nn.Module):
         return y
 
     def adjusted_phi(self, x, T, patch):
+        """
+        find the suitable terminal condition based on the value of patch
+        when branch_patches=1, this function always outputs self.phi_fun(x)
+        """
         if patch == 0:
             return self.phi_fun(x)
         else:
@@ -222,18 +227,29 @@ class Net(torch.nn.Module):
             return self(xx, patch=patch - 1).reshape(-1, self.nb_path_per_state)
 
     def code_to_function(self, code, x, T, patch=0):
-        # shape of x -> d x nb_states x nb_paths_per_state
-        # shape of fun_val -> nb_states x nb_paths_per_state
+        """
+        calculate the functional of tree based on code and x
+
+        there are two ways of representing the code
+        1. negative code of size d
+                (neg_num_1, ..., neg_num_d) -> d/dx1^{-neg_num_1 - 1} ... d/dxd^{-neg_num_d - 1} phi(x1, ..., xd)
+        2. positive code of size n
+                (pos_num_1, ..., pos_num_n) -> d/dy1^{pos_num_1 - 1} ... d/dyd^{-pos_num_1 - 1} phi(y1, ..., yn)
+                    y_i is the derivatives of phi wrt x with order self.deriv_map[i-1]
+
+        shape of x      -> d x batch
+        shape of output -> batch
+        """
         x = x.detach().clone().requires_grad_(True)
         fun_val = torch.zeros_like(x[0])
 
-        # code (neg_num_1, ..., neg_num_d) -> d/dx1^{-neg_num_1 - 1} ... d/dxd^{-neg_num_d - 1} phi(x1, ..., xd)
+        # negative code of size d
         if code[0] < 0:
             return self.nth_derivatives(
                 -code - 1, self.adjusted_phi(x, T, patch), x
             ).detach()
 
-        # code (pos_num_0, ..., pos_num_n) -> d/dx0^{pos_num_0 - 1} ... d/dxn^{pos_num_n - 1} f(x0, x1, ..., xn)
+        # positive code of size d
         if code[0] > 0:
             y = []
             for order in self.deriv_map:
@@ -249,6 +265,13 @@ class Net(torch.nn.Module):
         return fun_val
 
     def gen_bm(self, dt, nb_states):
+        """
+        generate brownian motion sqrt{dt} x Gaussian
+
+        when self.antithetic=true, we generate
+        dw = sqrt{dt} x Gaussian of size nb_states//2
+        and return (dw, -dw)
+        """
         dt = dt.clip(min=0.0)  # so that we can safely take square root of dt
 
         if self.antithetic:
@@ -266,13 +289,21 @@ class Net(torch.nn.Module):
 
     def gen_sample_batch(self, t, T, x, mask, H, code, patch):
         """
-        shape of t    -> nb_states x nb_paths_per_state
-        shape of T    -> nb_states x nb_paths_per_state
-        shape of x    -> d x nb_states x nb_paths_per_state
-        shape of mask -> nb_states x nb_paths_per_state
-        shape of H    -> nb_states x nb_paths_per_state
-        shape of code -> d for negative code
-                      -> n + 1 for positive code
+        recursive function to calculate E[ H(t, x, code) ]
+
+        t    -> current time
+             -> shape of nb_states x nb_paths_per_state
+        T    -> terminal time
+             -> shape of nb_states x nb_paths_per_state
+        x    -> value of brownian motion at time t
+             -> shape of d x nb_states x nb_paths_per_state
+        mask -> mask[idx]=1 means the state at index idx is still alive
+             -> mask[idx]=0 means the state at index idx is dead
+             -> shape of nb_states x nb_paths_per_state
+        H    -> cummulative value of the product of functional H
+             -> shape of nb_states x nb_paths_per_state
+        code -> determine the operation to be taken on the functions f and phi
+             -> negative code of size d or positive code of size n
         """
         # return zero tensor when no operation is needed
         ans = torch.zeros_like(t)
@@ -307,7 +338,7 @@ class Net(torch.nn.Module):
         # uniform distribution to choose from the set of mechanism
         unif = torch.rand(nb_states, self.nb_path_per_state, device=self.device)
 
-        # identity code (-1, ..., -1)
+        # identity code (-1, ..., -1) of size d
         if (len(code) == self.dim) and (code == [-1] * self.dim).all():
             tmp = self.gen_sample_batch(
                 t + tau,
@@ -320,7 +351,7 @@ class Net(torch.nn.Module):
             )
             ans = ans.where(~mask_now, tmp)
 
-        # negative code
+        # negative code of size d
         elif code[0] < 0:
             order = tuple(-code - 1)
             # if c is not in the lookup, add it
@@ -364,7 +395,7 @@ class Net(torch.nn.Module):
                 ans = ans.where(~mask_tmp, A)
                 idx_counter += 1
 
-        # positive code
+        # positive code of size n
         elif code[0] > 0:
             idx = (unif * self.mechanism_tot_len).long()
             idx_counter = 0
@@ -473,7 +504,7 @@ class Net(torch.nn.Module):
         batches = math.ceil(nb_states / states_per_batch)
         t_lo, t_hi = self.adjusted_t_boundaries[patch]
         x_lo, x_hi = self.adjusted_x_boundaries
-        xx, yy, dydx = [], [], []
+        xx, yy = [], []
         for _ in range(batches):
             unif = (
                 torch.rand(states_per_batch, device=self.device)
@@ -489,11 +520,10 @@ class Net(torch.nn.Module):
                 .T.reshape(self.dim, states_per_batch, self.nb_path_per_state)
             )
             x = x_lo + (x_hi - x_lo) * unif
-            # fix all dimensions (except the first) to be a middle value for debug purposes
-            if self.dim > 1 and self.debug_gen:
+            # fix all dimensions (except the first) to be the middle value
+            if self.dim > 1 and self.fix_all_dim_except_first:
                 x[1:, :, :] = (x_hi + x_lo) / 2
             T = (t_lo + self.delta_t) * torch.ones_like(t)
-            # xx.append(torch.cat((t[:, :, 0], x[:, :, 0]), dim=0).T.detach())
             xx.append(torch.cat((t[:, :1], x[:, :, 0].T), dim=-1).detach())
             yy_tmp = self.gen_sample_batch(
                 t,
@@ -520,26 +550,9 @@ class Net(torch.nn.Module):
             )
             yy.append((yy_tmp.nan_to_num() * mask).sum(dim=1) / mask.sum(dim=1))
 
-            if self.dydx_lam > 0:
-                # for the derivatives of solution
-                dydx.append(
-                    self.gen_sample_batch(
-                        t,
-                        T,
-                        x,
-                        torch.ones_like(t),
-                        torch.ones_like(t),
-                        np.array([-2] * self.dim),
-                        patch,
-                    )
-                    .mean(dim=1)
-                    .detach()
-                )
-
         return (
             torch.cat(xx),
             torch.cat(yy),
-            torch.cat(dydx) if self.dydx_lam > 0 else None,
         )
 
     def train_and_eval(self, debug_mode=False):
@@ -556,8 +569,7 @@ class Net(torch.nn.Module):
             )
 
             start = time.time()
-            x, y, dydx = self.gen_sample(patch=p)
-            x = x.requires_grad_(dydx is not None)
+            x, y = self.gen_sample(patch=p)
             if self.verbose:
                 print(
                     f"Patch {p}: generation of samples take {time.time() - start} seconds."
@@ -572,17 +584,13 @@ class Net(torch.nn.Module):
                 optimizer.zero_grad()
                 predict = self(x, patch=p)
                 loss = self.loss(predict, y)
-                if dydx is not None:
-                    loss = loss + self.dydx_lam * self.loss(
-                        torch.autograd.grad(predict.sum(), x, create_graph=True)[0][
-                            :, 1
-                        ],
-                        dydx,
-                    )
-                # update model weights and record total loss
+
+                # update model weights and schedule
                 loss.backward()
                 optimizer.step()
                 scheduler.step()
+
+                # print loss information every 500 epochs
                 if epoch % 500 == 0 or epoch + 1 == self.epochs:
                     if debug_mode:
                         grid = np.linspace(self.x_lo, self.x_hi, 100)
@@ -626,23 +634,6 @@ class Net(torch.nn.Module):
                             header="x,nn",
                             comments="",
                         )
-                        if dydx is not None:
-                            xx = torch.tensor(
-                                [[t_lo, yy] for yy in grid],
-                                device=self.device,
-                                requires_grad=True,
-                            )
-                            nn = (
-                                torch.autograd.grad(self(xx, patch=p).sum(), xx)[0][
-                                    :, 1
-                                ]
-                                .detach()
-                                .cpu()
-                                .numpy()
-                            )
-                            plt.plot(grid, nn)
-                            plt.plot(x[:, 1].detach().cpu(), dydx.cpu(), "+")
-                            plt.show()
                         self.train()
                     if self.verbose:
                         print(f"Patch {p}: epoch {epoch} with loss {loss.detach()}")
