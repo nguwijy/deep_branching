@@ -11,7 +11,7 @@ torch.manual_seed(0)  # set seed for reproducibility
 
 class Net(torch.nn.Module):
     """
-    2-layer neural network with utitlity functions for solving ODE
+    deep branching approach to solve PDE with utility functions
     """
     def __init__(
         self,
@@ -496,6 +496,9 @@ class Net(torch.nn.Module):
         return ans
 
     def gen_sample(self, patch, t=None):
+        """
+        generate sample based on the (t, x) boundary and the function gen_sample_batch
+        """
         if t is None:
             nb_states = self.nb_states
         else:
@@ -556,6 +559,9 @@ class Net(torch.nn.Module):
         )
 
     def train_and_eval(self, debug_mode=False):
+        """
+        generate sample and evaluate (plot) NN approximation when debug_mode=True
+        """
         for p in range(self.patches):
             # initialize optimizer
             optimizer = torch.optim.Adam(
