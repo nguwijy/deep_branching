@@ -1,12 +1,12 @@
 # Deep branching solver in PyTorch
-Deep branching solver aims to solve 
+Deep branching solver aims to solve
 fully nonlinear PDEs of the form\
 <img src="http://latex.codecogs.com/svg.latex?\partial_t&space;u(t,x)&space;&plus;&space;\frac{1}{2}\Delta&space;u(t,x)&space;&plus;&space;f\big(\partial_{\lambda^1}u(t,x)&space;,&space;\ldots&space;,&space;\partial_{\lambda^n}u(t,x)\big)&space;=&space;0," title="http://latex.codecogs.com/svg.latex?\partial_t u(t,x) + \frac{1}{2}\Delta u(t,x) + f\big(\partial_{\lambda^1}u(t,x) , \ldots , \partial_{\lambda^n}u(t,x)\big) = 0," />\
 with\
 <img src="http://latex.codecogs.com/svg.latex?u(T,x)&space;=&space;g&space;(x),&space;\qquad&space;(t,x)&space;=&space;(t,x_1,&space;\ldots,&space;x_d)&space;\in&space;[0,T]&space;\times&space;\mathbb{R}^d." title="http://latex.codecogs.com/svg.latex?u(T,x) = g (x), \qquad (t,x) = (t,x_1, \ldots, x_d) \in [0,T] \times \mathbb{R}^d." />
 
-We let 
-<img src="http://latex.codecogs.com/svg.latex?d&space;=&space;3" title="http://latex.codecogs.com/svg.latex?d = 3" />
+We let
+<img src="http://latex.codecogs.com/svg.latex?d&space;=&space;3," title="http://latex.codecogs.com/svg.latex?d = 3," />
 <img src="http://latex.codecogs.com/svg.latex?T&space;=&space;.05," title="http://latex.codecogs.com/svg.latex?T = .05," />
 <img src="http://latex.codecogs.com/svg.latex?\lambda^1&space;=&space;(0,&space;0,&space;0)," title="http://latex.codecogs.com/svg.latex?\lambda^1 = (0, 0, 0)," />
 <img src="http://latex.codecogs.com/svg.latex?\lambda^2&space;=&space;(1,&space;0,&space;0)," title="http://latex.codecogs.com/svg.latex?\lambda_2 = (1, 0, 0)," />
@@ -24,7 +24,7 @@ suppose that we are only interested in the solution u(0, x) for
 
 ## Using deep branching solver
 There are two ways to utilize the deep branching solver:
-1. Edit the templates inside the `__main__` environment 
+1. Edit the templates inside the `__main__` environment
         in `branch.py`, then run `python branch.py` from your terminal.
 2. Write your own code and import the solver to your code via `from branch import Net`,
         see the sections [defining the derivatives map and the functions](#defining-the-derivatives-map-and-the-functions)
@@ -106,14 +106,14 @@ The codes are available in
 see the `comparison.ipynb` notebook for more information.
 
 ## References
-<a id="han2018solving">[HJE18]</a> 
+<a id="han2018solving">[HJE18]</a>
 J. Han, A. Jentzen, and W. E.
 Solving high-dimensional partial differential equations using deep
 learning.
 *Proceedings of the National Academy of Sciences*,
 115(34):8505--8510, 2018.
 
-<a id="sirignano2018dgm">[SS18]</a> 
+<a id="sirignano2018dgm">[SS18]</a>
 J. Sirignano and K. Spiliopoulos.
 DGM: A deep learning algorithm for solving partial differential
 equations.
