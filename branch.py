@@ -698,4 +698,5 @@ if __name__ == "__main__":
     plt.plot(grid, model(nn_input).detach(), label="Deep branching")
     plt.plot(grid, exact_fun(0, nn_input[:, 1:].numpy().T, T), label="True solution")
     plt.legend()
+    plt.savefig("plot/final/demo.png", bbox_inches='tight')
     plt.show()

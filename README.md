@@ -84,6 +84,8 @@ plt.plot(grid, exact_fun(0, nn_input[:, 1:].numpy().T, T), label="True solution"
 plt.legend()
 plt.show()
 ```
+The resulting plot is embedded below:
+![image](plot/final/demo.png)
 
 ## Comparison with other deep solver
 The deep branching solver is compared with
