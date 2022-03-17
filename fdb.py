@@ -75,6 +75,12 @@ def fdb_1d(k):
 
 
 def fdb_nd(n, ks):
+    """
+    the main function, multivariate faa di bruno formula for
+    d^k1/dx1 d^k2/dx2 ... d^kd/dxd f(g1(x), g2(x), ..., gn(x))
+
+    this implementation is derived from the R package kStatistics::MFB
+    """
     fdb = collections.namedtuple('fdb', 'coeff lamb l_and_k')
     ans = []
 
