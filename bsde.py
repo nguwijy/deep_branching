@@ -36,35 +36,86 @@ class BSDENet(torch.nn.Module):
         verbose=False,
         fix_all_dim_except_first=True,
         bsde_nb_time_intervals=5,
+        second_order=False,
         **kwargs,
     ):
         super(BSDENet, self).__init__()
+        # we assume f only depends on the diagonal entry of Gamma
+        # hence, idx 0 -> y; idx 1 to d -> z; idx d+1 to 2d -> Gamma
         self.f_fun = f_fun
         self.deriv_map = deriv_map
         self.n, self.dim = deriv_map.shape
 
         self.phi_fun = phi_fun
-        self.znet = torch.nn.ModuleList(
-            [
-                torch.nn.ModuleList(
-                    [torch.nn.Linear(self.dim, neurons, device=device)]
-                    + [torch.nn.Linear(neurons, neurons, device=device) for _ in range(layers)]
-                    + [torch.nn.Linear(neurons, self.dim, device=device)]
-                )
-                for _ in range(bsde_nb_time_intervals)
-            ]
-        )
-        self.z_bn_layer = torch.nn.ModuleList(
-            [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
-        )
-        self.ynet = torch.nn.ModuleList(
-            [torch.nn.Linear(self.dim, neurons, device=device)]
-            + [torch.nn.Linear(neurons, neurons, device=device) for _ in range(layers)]
-            + [torch.nn.Linear(neurons, 1, device=device)]
-        )
-        self.y_bn_layer = torch.nn.ModuleList(
-            [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
-        )
+        # TODO: the number of bn_layer should be the same as net! fix it
+        self.second_order = second_order
+        if second_order:
+            # second order BSDE
+            self.anet = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleList(
+                        [torch.nn.Linear(self.dim, neurons, device=device)]
+                        + [torch.nn.Linear(neurons, neurons, device=device) for _ in range(layers)]
+                        + [torch.nn.Linear(neurons, self.dim, device=device)]
+                    )
+                    for _ in range(bsde_nb_time_intervals)
+                ]
+            )
+            self.a_bn_layer = torch.nn.ModuleList(
+                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+            )
+            self.gnet = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleList(
+                        [torch.nn.Linear(self.dim, neurons, device=device)]
+                        + [torch.nn.Linear(neurons, neurons, device=device) for _ in range(layers)]
+                        + [torch.nn.Linear(neurons, self.dim, device=device)]
+                    )
+                    for _ in range(bsde_nb_time_intervals)
+                ]
+            )
+            self.g_bn_layer = torch.nn.ModuleList(
+                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+            )
+            self.znet = torch.nn.ModuleList(
+                        [torch.nn.Linear(self.dim, neurons, device=device)]
+                        + [torch.nn.Linear(neurons, neurons, device=device) for _ in range(layers)]
+                        + [torch.nn.Linear(neurons, self.dim, device=device)]
+                    )
+            self.z_bn_layer = torch.nn.ModuleList(
+                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+            )
+            self.ynet = torch.nn.ModuleList(
+                [torch.nn.Linear(self.dim, neurons, device=device)]
+                + [torch.nn.Linear(neurons, neurons, device=device) for _ in range(layers)]
+                + [torch.nn.Linear(neurons, 1, device=device)]
+            )
+            self.y_bn_layer = torch.nn.ModuleList(
+                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+            )
+        else:
+            # classical BSDE
+            self.znet = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleList(
+                        [torch.nn.Linear(self.dim, neurons, device=device)]
+                        + [torch.nn.Linear(neurons, neurons, device=device) for _ in range(layers)]
+                        + [torch.nn.Linear(neurons, self.dim, device=device)]
+                    )
+                    for _ in range(bsde_nb_time_intervals)
+                ]
+            )
+            self.z_bn_layer = torch.nn.ModuleList(
+                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+            )
+            self.ynet = torch.nn.ModuleList(
+                [torch.nn.Linear(self.dim, neurons, device=device)]
+                + [torch.nn.Linear(neurons, neurons, device=device) for _ in range(layers)]
+                + [torch.nn.Linear(neurons, 1, device=device)]
+            )
+            self.y_bn_layer = torch.nn.ModuleList(
+                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+            )
         self.lr = bsde_lr
         self.weight_decay = weight_decay
 
@@ -95,20 +146,32 @@ class BSDENet(torch.nn.Module):
         self.verbose = verbose
         self.fix_all_dim_except_first = fix_all_dim_except_first
 
-    def forward(self, x, y_or_z="y", time_index=0):
+    def forward(self, x, variable="y", time_index=0):
         """
         self(x) evaluates the neural network approximation NN(x)
 
-        BSDE has two kinds of network,
+        classical BSDE has two kinds of network,
         1. y for the approximation of the true solution at initial time t_lo
-        1. z for the approximation of the first order derivatives of true solution from time t_lo to t_hi
+        2. z for the approximation of the first order derivatives of true solution from time t_lo to t_hi
+
+        second order BSDE has four kinds of network,
+        1. y for the approximation of the true solution at initial time t_lo
+        2. z for the approximation of the first order derivatives of true solution at initial time t_lo
+        3. gamma for the approximation of the second order derivatives of true solution from time t_lo to t_hi
+        4. A for the approximation of the LDu from time t_lo to t_hi
         """
-        if y_or_z == "y":
+        if variable == "y":
             net = self.ynet
             bn_net = self.y_bn_layer
-        else:
-            net = self.znet[time_index]
+        elif variable == "z":
+            net = self.znet if self.second_order else self.znet[time_index]
             bn_net = self.z_bn_layer
+        elif variable == "g":
+            net = self.gnet[time_index]
+            bn_net = self.g_bn_layer
+        elif variable == "a":
+            net = self.anet[time_index]
+            bn_net = self.a_bn_layer
 
         for idx, (f, bn) in enumerate(zip(net[:-1], bn_net)):
             tmp = f(x)
@@ -172,20 +235,44 @@ class BSDENet(torch.nn.Module):
             # clear gradients and evaluate training loss
             optimizer.zero_grad()
 
-            y = self(x[:, :, 0], y_or_z="y")
+            y = self(x[:, :, 0], variable="y")
+            if self.second_order:
+                z = self(x[:, :, 0], variable="z")
 
             for t in range(self.nb_time_intervals):
-                z = self(
-                    x[:, :, t],
-                    y_or_z="z",
-                    time_index=t,
-                )
+                if self.second_order:
+                    # second order BSDE
+                    gamma = self(
+                        x[:, :, t],
+                        variable="g",
+                        time_index=t,
+                    )
+                    a = self(
+                        x[:, :, t],
+                        variable="a",
+                        time_index=t,
+                    )
+                    f_input = torch.cat([y, z, gamma], dim=-1).T
+                else:
+                    # classical BSDE
+                    z = self(
+                        x[:, :, t],
+                        variable="z",
+                        time_index=t,
+                    )
+                    f_input = torch.cat([y, z], dim=-1).T
                 y = (
                     y
                     - self.delta_t
-                    * self.f_fun(torch.cat([y, z], dim=-1).T).unsqueeze(-1)
+                    * self.f_fun(f_input).unsqueeze(-1)
                     + torch.bmm(z.unsqueeze(1), dw[:, :, t].unsqueeze(-1)).squeeze(-1)
                 )
+                if self.second_order:
+                    z = (
+                            z
+                            + self.delta_t * a
+                            + dw[:, :, t] * gamma
+                    )
                 # clipping in case y explodes quickly
                 y = y.clip(self.y_lo, self.y_hi)
             loss = self.loss(y.squeeze(-1), self.phi_fun(x[:, :, -1].T))
@@ -210,7 +297,7 @@ class BSDENet(torch.nn.Module):
                     nn = (
                         self(
                             torch.tensor(grid_nd.T, device=self.device),
-                            y_or_z="y",
+                            variable="y",
                         )
                         .detach()
                         .cpu()
@@ -264,6 +351,7 @@ if __name__ == "__main__":
         x_hi=x_hi,
         device=device,
         verbose=True,
+        second_order=True,
     )
     model.train_and_eval()
 
