@@ -35,7 +35,7 @@ class BSDENet(torch.nn.Module):
         bsde_activation="tanh",
         verbose=False,
         fix_all_dim_except_first=True,
-        bsde_nb_time_intervals=5,
+        bsde_nb_time_intervals=4,
         second_order=False,
         **kwargs,
     ):
