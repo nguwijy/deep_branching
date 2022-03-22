@@ -47,7 +47,6 @@ class BSDENet(torch.nn.Module):
         self.n, self.dim = deriv_map.shape
 
         self.phi_fun = phi_fun
-        # TODO: the number of bn_layer should be the same as net! fix it
         self.second_order = second_order
         if second_order:
             # second order BSDE
@@ -62,7 +61,14 @@ class BSDENet(torch.nn.Module):
                 ]
             )
             self.a_bn_layer = torch.nn.ModuleList(
-                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+                [
+                    torch.nn.ModuleList(
+                        [torch.nn.BatchNorm1d(self.dim, device=device)]
+                        + [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers + 1)]
+                        + [torch.nn.BatchNorm1d(self.dim, device=device)]
+                    )
+                    for _ in range(bsde_nb_time_intervals)
+                ]
             )
             self.gnet = torch.nn.ModuleList(
                 [
@@ -75,7 +81,14 @@ class BSDENet(torch.nn.Module):
                 ]
             )
             self.g_bn_layer = torch.nn.ModuleList(
-                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+                [
+                    torch.nn.ModuleList(
+                        [torch.nn.BatchNorm1d(self.dim, device=device)]
+                        + [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers + 1)]
+                        + [torch.nn.BatchNorm1d(self.dim, device=device)]
+            )
+                    for _ in range(bsde_nb_time_intervals)
+                ]
             )
             self.znet = torch.nn.ModuleList(
                         [torch.nn.Linear(self.dim, neurons, device=device)]
@@ -83,7 +96,9 @@ class BSDENet(torch.nn.Module):
                         + [torch.nn.Linear(neurons, self.dim, device=device)]
                     )
             self.z_bn_layer = torch.nn.ModuleList(
-                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+                [torch.nn.BatchNorm1d(self.dim, device=device)]
+                + [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers + 1)]
+                + [torch.nn.BatchNorm1d(self.dim, device=device)]
             )
             self.ynet = torch.nn.ModuleList(
                 [torch.nn.Linear(self.dim, neurons, device=device)]
@@ -91,7 +106,9 @@ class BSDENet(torch.nn.Module):
                 + [torch.nn.Linear(neurons, 1, device=device)]
             )
             self.y_bn_layer = torch.nn.ModuleList(
-                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+                [torch.nn.BatchNorm1d(self.dim, device=device)]
+                + [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers + 1)]
+                + [torch.nn.BatchNorm1d(1, device=device)]
             )
         else:
             # classical BSDE
@@ -106,7 +123,14 @@ class BSDENet(torch.nn.Module):
                 ]
             )
             self.z_bn_layer = torch.nn.ModuleList(
-                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+                [
+                    torch.nn.ModuleList(
+                        [torch.nn.BatchNorm1d(self.dim, device=device)]
+                        + [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers + 1)]
+                        + [torch.nn.BatchNorm1d(self.dim, device=device)]
+                    )
+                    for _ in range(bsde_nb_time_intervals)
+                ]
             )
             self.ynet = torch.nn.ModuleList(
                 [torch.nn.Linear(self.dim, neurons, device=device)]
@@ -114,7 +138,9 @@ class BSDENet(torch.nn.Module):
                 + [torch.nn.Linear(neurons, 1, device=device)]
             )
             self.y_bn_layer = torch.nn.ModuleList(
-                [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers)]
+                [torch.nn.BatchNorm1d(self.dim, device=device)]
+                + [torch.nn.BatchNorm1d(neurons, device=device) for _ in range(layers + 1)]
+                + [torch.nn.BatchNorm1d(1, device=device)]
             )
         self.lr = bsde_lr
         self.weight_decay = weight_decay
@@ -165,15 +191,18 @@ class BSDENet(torch.nn.Module):
             bn_net = self.y_bn_layer
         elif variable == "z":
             net = self.znet if self.second_order else self.znet[time_index]
-            bn_net = self.z_bn_layer
+            bn_net = self.z_bn_layer if self.second_order else self.z_bn_layer[time_index]
         elif variable == "g":
             net = self.gnet[time_index]
-            bn_net = self.g_bn_layer
+            bn_net = self.g_bn_layer[time_index]
         elif variable == "a":
             net = self.anet[time_index]
-            bn_net = self.a_bn_layer
+            bn_net = self.a_bn_layer[time_index]
 
-        for idx, (f, bn) in enumerate(zip(net[:-1], bn_net)):
+        # if self.batch_normalization:
+        #     x = bn_net[0](x)
+
+        for idx, (f, bn) in enumerate(zip(net[:-1], bn_net[1:-1])):
             tmp = f(x)
             tmp = self.activation(tmp)
             if self.batch_normalization:
@@ -185,6 +214,8 @@ class BSDENet(torch.nn.Module):
                 x = tmp + x
 
         x = net[-1](x)
+        # if self.batch_normalization:
+        #     x = bn_net[-1](x)
         return x
 
     def gen_sample(self):
@@ -285,6 +316,7 @@ class BSDENet(torch.nn.Module):
             # print loss information every 500 epochs
             if epoch % 500 == 0 or epoch + 1 == self.epochs:
                 if debug_mode:
+                    self.eval()
                     grid = np.linspace(self.x_lo, self.x_hi, 100).astype(np.float32)
                     x_mid = (self.x_lo + self.x_hi) / 2
                     grid_nd = np.concatenate(
