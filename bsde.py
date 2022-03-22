@@ -199,8 +199,8 @@ class BSDENet(torch.nn.Module):
             net = self.anet[time_index]
             bn_net = self.a_bn_layer[time_index]
 
-        # if self.batch_normalization:
-        #     x = bn_net[0](x)
+        if self.batch_normalization:
+            x = bn_net[0](x)
 
         for idx, (f, bn) in enumerate(zip(net[:-1], bn_net[1:-1])):
             tmp = f(x)
@@ -214,8 +214,6 @@ class BSDENet(torch.nn.Module):
                 x = tmp + x
 
         x = net[-1](x)
-        # if self.batch_normalization:
-        #     x = bn_net[-1](x)
         return x
 
     def gen_sample(self):
