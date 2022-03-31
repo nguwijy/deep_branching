@@ -382,7 +382,6 @@ class Net(torch.nn.Module):
                 for ll, k_arr in fdb.l_and_k.items():
                     for q in range(self.n):
                         for _ in range(k_arr[q]):
-                            dw = self.gen_bm(tau, nb_states)
                             A = A * self.gen_sample_batch(
                                 t + tau,
                                 T,
@@ -416,7 +415,6 @@ class Net(torch.nn.Module):
                             -self.deriv_map[i] - code_increment - 1,
                             patch,
                         )
-                        dw = self.gen_bm(tau, nb_states)
                         B = self.gen_sample_batch(
                             t + tau,
                             T,
@@ -430,7 +428,6 @@ class Net(torch.nn.Module):
                         code_increment = np.zeros_like(code)
                         code_increment[i] += 1
                         code_increment[j] += 1
-                        dw = self.gen_bm(tau, nb_states)
                         tmp = self.gen_sample_batch(
                             t + tau,
                             T,
@@ -465,7 +462,6 @@ class Net(torch.nn.Module):
                     for ll, k_arr in fdb.l_and_k.items():
                         for q in range(self.n):
                             for _ in range(k_arr[q]):
-                                dw = self.gen_bm(tau, nb_states)
                                 A = A * self.gen_sample_batch(
                                     t + tau,
                                     T,
@@ -477,7 +473,6 @@ class Net(torch.nn.Module):
                                 )
                     code_increment = np.zeros_like(code)
                     code_increment[k] += 1
-                    dw = self.gen_bm(tau, nb_states)
                     tmp = self.gen_sample_batch(
                         t + tau,
                         T,
