@@ -41,6 +41,7 @@ class Net(torch.nn.Module):
         fix_all_dim_except_first=True,
         branch_patches=1,
         outlier_percentile=1,
+        code=None,
         **kwargs,
     ):
         super(Net, self).__init__()
@@ -57,6 +58,7 @@ class Net(torch.nn.Module):
         # such approach relies on precise approximation of u(T/2, x)
         # which is very time-consuming in high dimensional case
         self.patches = branch_patches
+        self.code = np.array([-1] * self.dim) if code is None else np.array(code)
 
         # store the (faa di bruno) fdb results for quicker lookup
         start = time.time()
@@ -529,7 +531,7 @@ class Net(torch.nn.Module):
                 x,
                 torch.ones_like(t),
                 torch.ones_like(t),
-                np.array([-1] * self.dim),
+                self.code,
                 patch,
             ).detach()
             # let (lo, hi) be 
