@@ -41,6 +41,7 @@ class Net(torch.nn.Module):
         fix_all_dim_except_first=True,
         branch_patches=1,
         outlier_percentile=1,
+        outlier_multiplier=1000,
         code=None,
         **kwargs,
     ):
@@ -119,6 +120,7 @@ class Net(torch.nn.Module):
         self.T = T
         self.delta_t = (T - t_lo) / branch_patches
         self.outlier_percentile = outlier_percentile
+        self.outlier_multiplier = outlier_multiplier
 
         self.exponential_lambda = branch_exponential_lambda if branch_exponential_lambda is not None else -math.log(.95)/T
         self.epochs = epochs
@@ -544,7 +546,7 @@ class Net(torch.nn.Module):
                 yy_tmp.nanquantile(self.outlier_percentile/100, dim=1, keepdim=True), 
                 yy_tmp.nanquantile(1 - self.outlier_percentile/100, dim=1, keepdim=True)
             )
-            lo, hi = lo - 1000 * (hi - lo), hi + 1000 * (hi - lo)
+            lo, hi = lo - self.outlier_multiplier * (hi - lo), hi + self.outlier_multiplier * (hi - lo)
             mask = torch.logical_or(
                 torch.logical_and(lo <= yy_tmp, yy_tmp <= hi), yy_tmp.isnan()
             )
