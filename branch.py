@@ -23,6 +23,7 @@ class Net(torch.nn.Module):
         t_lo=0.0,
         t_hi=0.0,
         T=1.0,
+        nu=0.5,
         branch_exponential_lambda=None,
         neurons=20,
         layers=5,
@@ -118,6 +119,7 @@ class Net(torch.nn.Module):
         self.t_lo = t_lo
         self.t_hi = t_hi
         self.T = T
+        self.nu = nu
         self.delta_t = (T - t_lo) / branch_patches
         self.outlier_percentile = outlier_percentile
         self.outlier_multiplier = outlier_multiplier
@@ -280,13 +282,13 @@ class Net(torch.nn.Module):
 
         if self.antithetic:
             # antithetic variates
-            dw = torch.sqrt(dt) * torch.randn(
+            dw = torch.sqrt(2 * self.nu * dt) * torch.randn(
                 self.dim, nb_states, self.nb_path_per_state // 2, device=self.device
             ).repeat(1, 1, 2)
             dw[:, :, : (self.nb_path_per_state // 2)] *= -1
         else:
             # usual generation
-            dw = torch.sqrt(dt) * torch.randn(
+            dw = torch.sqrt(2 * self.nu * dt) * torch.randn(
                 self.dim, nb_states, self.nb_path_per_state, device=self.device
             )
         return dw
@@ -437,7 +439,7 @@ class Net(torch.nn.Module):
                             T,
                             x + dw,
                             mask_tmp,
-                            -0.5
+                            -self.nu
                             * self.mechanism_tot_len
                             * A
                             * B
