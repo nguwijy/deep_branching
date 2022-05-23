@@ -695,9 +695,9 @@ if __name__ == "__main__":
         return np.log(1 + (x.sum(axis=0) + dim * (T - t)) ** 2)
 
     grid = torch.linspace(x_lo, x_hi, 100).unsqueeze(dim=-1)
-    nn_input = torch.cat((torch.zeros((100, 1)), grid, torch.zeros((100, 2))), dim=-1)
-    plt.plot(grid, model(nn_input).detach(), label="Deep branching")
-    plt.plot(grid, exact_fun(0, nn_input[:, 1:].numpy().T, T), label="True solution")
+    nn_input = torch.cat((torch.zeros((100, 1)), grid, torch.zeros((100, 2))), dim=-1).to(device)
+    plt.plot(grid, model(nn_input).cpu().detach(), label="Deep branching")
+    plt.plot(grid, exact_fun(0, nn_input[:, 1:].cpu().numpy().T, T), label="True solution")
     plt.legend()
     plt.savefig("plot/final/demo.png", bbox_inches='tight')
     plt.show()
