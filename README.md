@@ -1,4 +1,12 @@
 # Deep branching solver in PyTorch
+Authors: Jiang Yu Nguwi and Nicolas Privault.
+
+If this code is used for research purposes, please cite as \
+J.Y. Nguwi, G. Penent, and N. Privault.
+A deep branching solver for fully nonlinear partial differential equations.
+*arXiv preprint arXiv:2203.03234*, 2022.
+<br/><br/>
+
 Deep branching solver based on [[NPP22]](#nguwi2022deepbranching)
 aims to solve
 fully nonlinear PDEs of the form\
@@ -6,7 +14,8 @@ fully nonlinear PDEs of the form\
 with\
 <img src="http://latex.codecogs.com/svg.latex?u(T,x)&space;=&space;g&space;(x),&space;\qquad&space;(t,x)&space;=&space;(t,x_1,&space;\ldots,&space;x_d)&space;\in&space;[0,T]&space;\times&space;\mathbb{R}^d." title="http://latex.codecogs.com/svg.latex?u(T,x) = g (x), \qquad (t,x) = (t,x_1, \ldots, x_d) \in [0,T] \times \mathbb{R}^d." />
 
-We let
+We present the use of the deep branching solver
+with the particular example of
 <img src="http://latex.codecogs.com/svg.latex?d&space;=&space;3," title="http://latex.codecogs.com/svg.latex?d = 3," />
 <img src="http://latex.codecogs.com/svg.latex?T&space;=&space;.05," title="http://latex.codecogs.com/svg.latex?T = .05," />
 <img src="http://latex.codecogs.com/svg.latex?\lambda^1&space;=&space;(0,&space;0,&space;0)," title="http://latex.codecogs.com/svg.latex?\lambda^1 = (0, 0, 0)," />
