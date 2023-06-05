@@ -1,4 +1,6 @@
 # Deep branching solver in PyTorch
+**Note that this repository is no longer actively maintained. Please use [the latest version](https://github.com/nguwijy/deep_branching_with_domain) of deep branching solver.**
+
 Authors: Jiang Yu Nguwi and Nicolas Privault.
 
 If this code is used for research purposes, please cite as \
@@ -119,6 +121,13 @@ In the `comparison.ipynb` notebook,
 we present such comparisons using
 five PDE examples
 considered in [[NPP22]](#nguwi2022deepbranching).
+
+## Blow up analysis
+We also analyzed the blow-up time of the deep branching solver in the notebooks in the directory `blow_up_analysis`.
+This part is developed after we have the [latest version](https://github.com/nguwijy/deep_branching_with_domain) of the solver,
+and is therefore using the code from the latest version.
+
+`comparison.ipynb` still uses the code from this repository for legacy purposes.
 
 ## References
 <a id="han2018solving">[HJE18]</a>
